@@ -1,0 +1,485 @@
+openapi: 3.1.0
+info:
+  title: Peblo TV Mini API
+  version: 1.0.0
+  description: >
+    CMS (admin) and viewer (catalog) API for Peblo TV Mini. Admin routes are
+    Bearer-token authenticated and role-gated; catalog routes are public and
+    served from the published catalogue file.
+servers:
+  - url: http://localhost:8000
+    description: Local (docker-compose)
+paths:
+  /admin/auth/login:
+    post:
+      summary: Exchange credentials for a JWT
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, example: bearer }
+                  role: { $ref: "#/components/schemas/Role" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /admin/shows:
+    get:
+      summary: List shows (search, filter, paginate)
+      tags: [shows]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: section, in: query, schema: { $ref: "#/components/schemas/Section" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/Status" } }
+        - { name: language, in: query, schema: { $ref: "#/components/schemas/Language" } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: Paginated shows
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShowList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Create a show
+      tags: [shows]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShowCreate" }
+      responses:
+        "201": { description: Created show, content: { application/json: { schema: { $ref: "#/components/schemas/Show" } } } }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /admin/shows/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: Get a show with seasons and episodes
+      tags: [shows]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Show detail, content: { application/json: { schema: { $ref: "#/components/schemas/ShowDetail" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update a show (partial)
+      tags: [shows]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShowUpdate" }
+      responses:
+        "200": { description: Updated show, content: { application/json: { schema: { $ref: "#/components/schemas/Show" } } } }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: Delete a show
+      tags: [shows]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Deleted }
+
+  /admin/seasons:
+    post:
+      summary: Create a season
+      tags: [seasons]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [show_id, number]
+              properties:
+                show_id: { type: string, format: uuid }
+                number: { type: integer }
+      responses:
+        "201": { description: Created }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /admin/episodes:
+    post:
+      summary: Create an episode
+      tags: [episodes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EpisodeCreate" }
+      responses:
+        "201": { description: Created episode, content: { application/json: { schema: { $ref: "#/components/schemas/Episode" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /admin/episodes/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      summary: Update an episode (partial)
+      tags: [episodes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EpisodeUpdate" }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/Episode" } } } }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: Delete an episode
+      tags: [episodes]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Deleted }
+
+  /admin/artworks:
+    post:
+      summary: Upload artwork (poster/banner/thumbnail)
+      tags: [artwork]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, kind]
+              properties:
+                file: { type: string, format: binary }
+                kind: { $ref: "#/components/schemas/ArtworkKind" }
+                show_id: { type: string, format: uuid, description: "required for poster/banner" }
+                episode_id: { type: string, format: uuid, description: "required for thumbnail" }
+      responses:
+        "201": { description: Created artwork, content: { application/json: { schema: { $ref: "#/components/schemas/Artwork" } } } }
+        "413": { $ref: "#/components/responses/SizeExceeded" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /admin/artworks/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Delete an artwork
+      tags: [artwork]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Deleted }
+
+  /admin/catalog/publish:
+    post:
+      summary: Build and atomically publish the catalogue (admin only)
+      tags: [publish]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Publish result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublishResult" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/PublishFailed" }
+
+  /admin/catalog/runs:
+    get:
+      summary: Publish run history (admin only)
+      tags: [publish]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Run history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/PublishRun" } }
+                  total: { type: integer }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/validation-report:
+    get:
+      summary: Everything currently blocking publish, grouped for editors
+      tags: [publish]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Validation report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationReport" }
+
+  /catalog:
+    get:
+      summary: The published catalogue (public)
+      tags: [catalog]
+      responses:
+        "200":
+          description: Published catalogue
+          headers:
+            ETag: { schema: { type: string } }
+            Cache-Control: { schema: { type: string, example: "public, max-age=60" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Catalogue" }
+
+  /catalog/search:
+    get:
+      summary: Search the published catalogue (public)
+      tags: [catalog]
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: "matches show title, episode title, category" }
+        - { name: category, in: query, schema: { $ref: "#/components/schemas/Category" } }
+        - { name: language, in: query, schema: { $ref: "#/components/schemas/Language" } }
+        - { name: section, in: query, schema: { $ref: "#/components/schemas/Section" } }
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results: { type: array, items: { $ref: "#/components/schemas/CatalogueEntry" } }
+                  total: { type: integer }
+
+  /health:
+    get:
+      summary: Liveness/readiness probe
+      tags: [ops]
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  db: { type: string, example: ok }
+                  storage: { type: string, example: ok }
+        "503":
+          description: Degraded
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Role: { type: string, enum: [editor, admin] }
+    Section: { type: string, enum: [featured, series, minisodes, songs] }
+    Category: { type: string, enum: [adventure, folk, friendship, india, language, learning, maths, music, nature, reading, science, singalong, stories, travel, values] }
+    Language: { type: string, enum: [en, hi] }
+    Status: { type: string, enum: [draft, published] }
+    ArtworkKind: { type: string, enum: [poster, banner, thumbnail] }
+
+    Show:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        slug: { type: string }
+        synopsis: { type: string }
+        section: { $ref: "#/components/schemas/Section" }
+        status: { $ref: "#/components/schemas/Status" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ShowCreate:
+      type: object
+      required: [title, slug]
+      properties:
+        title: { type: string }
+        slug: { type: string }
+        synopsis: { type: string }
+        section: { $ref: "#/components/schemas/Section" }
+
+    ShowUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        synopsis: { type: string }
+        section: { $ref: "#/components/schemas/Section" }
+        status: { $ref: "#/components/schemas/Status" }
+
+    ShowDetail:
+      allOf:
+        - { $ref: "#/components/schemas/Show" }
+        - type: object
+          properties:
+            seasons:
+              type: array
+              items:
+                type: object
+                properties:
+                  number: { type: integer }
+                  episodes: { type: array, items: { $ref: "#/components/schemas/Episode" } }
+
+    ShowList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Show" } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+
+    Episode:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        season_id: { type: string, format: uuid }
+        number: { type: integer }
+        title: { type: string }
+        synopsis: { type: string }
+        duration_seconds: { type: integer }
+        language: { $ref: "#/components/schemas/Language" }
+        content_group: { type: string }
+        status: { $ref: "#/components/schemas/Status" }
+
+    EpisodeCreate:
+      type: object
+      required: [season_id, number, title, language, content_group]
+      properties:
+        season_id: { type: string, format: uuid }
+        number: { type: integer }
+        title: { type: string }
+        synopsis: { type: string }
+        duration_seconds: { type: integer }
+        language: { $ref: "#/components/schemas/Language" }
+        content_group: { type: string }
+        status: { $ref: "#/components/schemas/Status" }
+
+    EpisodeUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        synopsis: { type: string }
+        duration_seconds: { type: integer }
+        status: { $ref: "#/components/schemas/Status" }
+
+    Artwork:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/ArtworkKind" }
+        object_key: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        size_bytes: { type: integer }
+        mime_type: { type: string }
+        url: { type: string }
+
+    PublishResult:
+      type: object
+      properties:
+        run_id: { type: string, format: uuid }
+        version: { type: integer }
+        status: { type: string, enum: [succeeded] }
+        counts:
+          type: object
+          properties:
+            shows: { type: integer }
+            episodes: { type: integer }
+            entries: { type: integer }
+
+    PublishRun:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer }
+        triggered_by: { type: string, format: email }
+        status: { type: string, enum: [running, succeeded, failed] }
+        counts: { type: object }
+        error: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+
+    ValidationReport:
+      type: object
+      properties:
+        publishable: { type: boolean }
+        blocking:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              show: { type: string }
+              episode: { type: string }
+              count: { type: integer }
+        warnings:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              content_group: { type: string }
+              language: { type: string }
+              episodes: { type: array, items: { type: string } }
+
+    CatalogueEntry:
+      type: object
+      properties:
+        slug: { type: string }
+        title: { type: string }
+        synopsis: { type: string }
+        categories: { type: array, items: { $ref: "#/components/schemas/Category" } }
+        artwork: { type: object, properties: { poster: { type: string }, banner: { type: string } } }
+        seasons: { type: array, items: { type: object } }
+
+    Catalogue:
+      type: object
+      properties:
+        meta:
+          type: object
+          properties:
+            version: { type: integer }
+            published_at: { type: string, format: date-time }
+            counts: { type: object }
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { $ref: "#/components/schemas/Section" }
+              shows: { type: array, items: { $ref: "#/components/schemas/CatalogueEntry" } }
+
+  responses:
+    Unauthorized:
+      description: Missing/invalid token
+    Forbidden:
+      description: Insufficient role
+    NotFound:
+      description: Resource not found
+    Conflict:
+      description: Duplicate (content_group, language)
+    SizeExceeded:
+      description: Upload exceeds 200 KB
+    ValidationError:
+      description: Validation failed
+    PublishFailed:
+      description: Publish build/write failed
